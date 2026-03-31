@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout (image built with --target ci only; not pushed)
+      # ------------------------------------------------------------
+      - name: Checkout sources
+        uses: actions/checkout@v5
+
+      # ------------------------------------------------------------
+      # Docker / Buildx
+      # ------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # ============================================================
+      # SCANNER-TLS
+      # ============================================================
+      - name: Build scanner-tls CI image
+        run: |
+          set -euo pipefail
+          docker build \
+            --target ci \
+            -f Dockerfile \
+            -t cafe-scanner-tls:ci .
+
+      - name: Run scanner-tls CI checks (inside CI image)
+        run: |
+          docker run --rm cafe-scanner-tls:ci
+

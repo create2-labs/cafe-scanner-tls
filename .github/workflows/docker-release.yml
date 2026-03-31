@@ -1,0 +1,89 @@
+# Release workflow: promote RC images only (no build).
+# Expects RC image sha-<SHORT_SHA> for scanner-tls to exist.
+# SHORT_SHA is derived from the commit pointed to by the tag (robust for annotated tags).
+# Promotion uses docker buildx imagetools create so digests stay identical.
+
+name: Docker Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILDKIT: "1"
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------
+      # Checkout (for tag and git history)
+      # ------------------------------------------------------------
+      - name: Checkout sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------
+      # Docker Buildx (for imagetools)
+      # ------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ------------------------------------------------------------
+      # Version: from tag; SHA from commit pointed to by tag (robust for annotated tags)
+      # ------------------------------------------------------------
+      - name: Extract version and SHA from tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          FULL_SHA=$(git rev-list -n 1 "$TAG")
+          SHORT_SHA=$(echo "$FULL_SHA" | cut -c1-7)
+
+          echo "full_version=$TAG" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+
+          echo "Release version: $TAG"
+          echo "Commit SHA (for promotion): $SHORT_SHA"
+
+      # ------------------------------------------------------------
+      # Checks: existence and multi-arch for RC image (fail before promoting)
+      # ------------------------------------------------------------
+      - name: Check RC image exists and is multi-arch
+        run: |
+          IMG="oleglod/cafe-scanner-tls:sha-${{ steps.version.outputs.short_sha }}"
+          if ! docker buildx imagetools inspect "$IMG" >/dev/null 2>&1; then
+            echo "::error::RC image $IMG not found. Run the RC workflow for this commit first."
+            exit 1
+          fi
+          if ! docker buildx imagetools inspect "$IMG" | grep -q linux/amd64; then
+            echo "::error::RC image $IMG is not multi-arch (missing linux/amd64)."
+            exit 1
+          fi
+          if ! docker buildx imagetools inspect "$IMG" | grep -q linux/arm64; then
+            echo "::error::RC image $IMG is not multi-arch (missing linux/arm64)."
+            exit 1
+          fi
+          echo "RC image $IMG exists and is multi-arch."
+
+      # ------------------------------------------------------------
+      # Promotion: imagetools create only (no upload, same digests)
+      # ------------------------------------------------------------
+      - name: Promote TLS scanner to version and latest
+        run: |
+          docker buildx imagetools create \
+            -t oleglod/cafe-scanner-tls:${{ steps.version.outputs.full_version }} \
+            -t oleglod/cafe-scanner-tls:latest \
+            oleglod/cafe-scanner-tls:sha-${{ steps.version.outputs.short_sha }}
+
