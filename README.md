@@ -54,3 +54,16 @@ Supported tags:
 - `vX.Y.Z-rc<run_id>`: optional RC convenience tag
 - `vX.Y.Z`: final release tag
 - `latest`: most recent released version
+
+## Deployment integration
+
+`cafe-deploy` references this image through:
+
+- `SCANNER_TLS_VERSION` (env templates and local env files)
+- image `oleglod/cafe-scanner-tls:${SCANNER_TLS_VERSION}`
+
+Runtime contract is unchanged:
+
+- consume `scan.requested.tls`
+- publish `scan.started`, then `scan.completed` or `scan.failed`
+- persistence service consumes lifecycle events and writes PostgreSQL/Redis
