@@ -1,9 +1,9 @@
 module cafe-scanner-tls
 
-go 1.26.4
+go 1.26.5
 
 require (
-	github.com/gofiber/fiber/v2 v2.52.12
+	github.com/gofiber/fiber/v2 v2.52.14
 	github.com/google/uuid v1.6.0
 	github.com/nats-io/nats.go v1.49.0
 	github.com/prometheus/client_golang v1.23.2
