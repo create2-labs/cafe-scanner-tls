@@ -10,6 +10,6 @@ Items deferred; not blocking current releases unless noted.
 
 **T0 done :** pin `fiber/v2` **v2.52.14** (fix CVE-2026-45045 ; `BalancerForward` non utilisé).
 
-**Reste :** cutover **T1** vers `fiber/v3` (≥ 3.4.0) dans `internal/scanner/core/core.go` (health only).
+**T1 done :** cutover vers `fiber/v3` **v3.4.0** dans `internal/scanner/core/core.go` (health only).
 
-**Priority :** deliberate backlog — not blocking releases.
+**Reste (optionnel) :** T2 smoke `/health` ou note README contrat health.

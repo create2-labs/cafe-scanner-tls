@@ -11,7 +11,7 @@ import (
 	"cafe-scanner-tls/internal/config"
 	"cafe-scanner-tls/pkg/nats"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/spf13/viper"
 )
 
@@ -65,7 +65,7 @@ func Run(ctx context.Context, cancel context.CancelFunc, deps *Deps, runners []R
 	}
 	app := fiber.New(fiber.Config{AppName: "Cafe Scanner TLS"})
 
-	app.Get("/health", func(c *fiber.Ctx) error {
+	app.Get("/health", func(c fiber.Ctx) error {
 		natsConnected := deps.NATS.IsConnected()
 		scanners := fiber.Map{}
 		allOK := natsConnected
