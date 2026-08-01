@@ -65,23 +65,3 @@ func ScanPQC(host, port, group string, trace bool) (*PQCInfo, error) {
 
 	return &info, nil
 }
-
-// TryPQCGroups attempts to scan with different PQC groups if initial scan didn't detect PQC
-func TryPQCGroups(host, port string, groups []string) (*PQCInfo, error) {
-	// First try without specifying a group
-	info, err := ScanPQC(host, port, "", false)
-	if err == nil && (info.KexPQCReady || info.PQCMode == "hybrid" || info.PQCMode == "pure") {
-		return info, nil
-	}
-
-	// Try each group in the list
-	for _, group := range groups {
-		info, err := ScanPQC(host, port, group, false)
-		if err == nil && (info.KexPQCReady || info.PQCMode == "hybrid" || info.PQCMode == "pure") {
-			return info, nil
-		}
-	}
-
-	// Return the first result even if no PQC was detected
-	return info, nil
-}
