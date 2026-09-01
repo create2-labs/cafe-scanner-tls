@@ -14,6 +14,18 @@ Defaults:
 - `SCANNER_HEALTH_PORT=8081`
 - `CONFIG_PATH=./config.yaml`
 
+## Dev CLIs
+
+OQS/OpenSSL install scripts and TLS tooling docs (no NATS). Migrated from `cafe-discovery` (slim Discovery PR5).
+
+```bash
+cd cmd/cli/tls-scan
+./install_oqs_mac.sh          # or install_oqs_openssl_*.sh — see README
+go mod tidy                   # tools-only module (pins deps via tools.go)
+```
+
+See [`cmd/cli/tls-scan/README.md`](cmd/cli/tls-scan/README.md) for full OQS provider setup and historical `pq-scan` notes.
+
 ## Build
 
 ```bash
