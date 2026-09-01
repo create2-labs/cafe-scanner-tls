@@ -13,3 +13,11 @@ Items deferred; not blocking current releases unless noted.
 **T1 done :** cutover vers `fiber/v3` **v3.4.0** dans `internal/scanner/core/core.go` (health only).
 
 **Reste (optionnel) :** T2 smoke `/health` ou note README contrat health.
+
+---
+
+## Slim Discovery PR5 — CLI TLS docs
+
+OQS/install scripts + `tools.go` pin module : `cmd/cli/tls-scan/` (from `cafe-discovery`).
+
+**Optional PR5b:** add `main.go` for local `tls-scan <host:port>` via `internal/tlsscan.Engine`.
