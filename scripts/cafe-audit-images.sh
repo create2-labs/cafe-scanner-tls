@@ -32,7 +32,7 @@ run_lint() {
 run_gov() {
   if ! have govulncheck; then state_set gov "govulncheck absent"; return; fi
   local out
-  if out=$(cd "$REPO_ROOT" && govulncheck ./... 2>&1); then
+  if out=$(cd "$REPO_ROOT" && GOWORK=off govulncheck ./... 2>&1); then
     if echo "$out" | grep -q "Vulnerability #"; then state_set gov "alertes"; else state_set gov "OK"; fi
   else state_set gov "échec"; fi
 }
