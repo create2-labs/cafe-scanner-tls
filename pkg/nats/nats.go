@@ -2,6 +2,7 @@ package nats
 
 import (
 	"cafe-scanner-tls/internal/config"
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -15,7 +16,7 @@ import (
 type Connection interface {
 	Publish(subject string, data []byte) error
 	Subscribe(subject string, handler func(msg *nats.Msg)) (*nats.Subscription, error)
-	QueueSubscribe(subject, queue string, handler func(msg *nats.Msg)) (*nats.Subscription, error)
+	ConsumeDurable(ctx context.Context, subject, durable string, handler func(DurableMessage)) error
 	Close()
 	IsConnected() bool
 }
@@ -66,10 +67,6 @@ func (nc *natsConnection) Subscribe(subject string, handler func(msg *nats.Msg))
 	return nc.conn.Subscribe(subject, handler)
 }
 
-func (nc *natsConnection) QueueSubscribe(subject, queue string, handler func(msg *nats.Msg)) (*nats.Subscription, error) {
-	return nc.conn.QueueSubscribe(subject, queue, handler)
-}
-
 func (nc *natsConnection) Close() {
 	if nc.conn != nil {
 		nc.conn.Close()
@@ -95,18 +92,17 @@ const (
 	SubjectWalletScan      = "cafe.discovery.wallet.scan"
 	SubjectTLSScan         = "cafe.discovery.tls.scan"
 	SubjectScannerPresence = "cafe.discovery.scanners.presence"
-	QueueScanners          = "cafe.scanners"
 
 	// Event subjects for persistence service (scan lifecycle)
-	SubjectScanRequestedTLS    = "scan.requested.tls"
-	SubjectScanRequestedWallet = "scan.requested.wallet"
-	SubjectScanStarted         = "scan.started"
-	SubjectScanCompleted       = "scan.completed"
-	SubjectScanFailed          = "scan.failed"
-	SubjectScanReady           = "scan.ready" // published by persistence after writing to Redis/Postgres so API can return result on GET
+	SubjectScanRequestedTLS       = "scan.requested.tls"
+	SubjectScanRequestedWallet    = "scan.requested.wallet"
+	SubjectScanStarted            = "scan.started"
+	SubjectScanCompleted          = "scan.completed"
+	SubjectScanFailed             = "scan.failed"
+	SubjectScanReady              = "scan.ready" // published by persistence after writing to Redis/Postgres so API can return result on GET
 	SubjectScannerHeartbeatTLS    = "scanner.heartbeat.tls"
 	SubjectScannerHeartbeatWallet = "scanner.heartbeat.wallet"
-	SubjectPersistenceReady      = "persistence.ready"
+	SubjectPersistenceReady       = "persistence.ready"
 )
 
 // QueuePersistence is the queue name for persistence service consumers
