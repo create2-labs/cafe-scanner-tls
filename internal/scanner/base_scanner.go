@@ -5,58 +5,80 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"cafe-scanner-tls/pkg/nats"
 
-	natslib "github.com/nats-io/nats.go"
+	"github.com/google/uuid"
 )
 
-// MessageHandler is a function that processes a NATS message
-type MessageHandler func(msg *natslib.Msg) error
+const inProgressEvery = 30 * time.Second
+
+// DeliveryHandler processes one scan request.
+// last is true when this is the final delivery JetStream will make.
+// A nil error means the delivery is finished: the handler published scan.completed,
+// or scan.failed on the last delivery, or the payload cannot be read.
+type DeliveryHandler func(data []byte, last bool) error
 
 // BaseScanner provides common functionality for all scanners
 type BaseScanner struct {
 	natsConn  nats.Connection
 	subject   string
-	handler   MessageHandler
+	durable   string
+	handler   DeliveryHandler
 	name      string
 	isRunning bool
-	mu        sync.RWMutex
+	gate      *workGate
+	mu        sync.Mutex
 }
 
 // NewBaseScanner creates a new base scanner
-func NewBaseScanner(natsConn nats.Connection, subject, name string, handler MessageHandler) *BaseScanner {
+func NewBaseScanner(natsConn nats.Connection, subject, durable, name string, handler DeliveryHandler) *BaseScanner {
 	return &BaseScanner{
 		natsConn: natsConn,
 		subject:  subject,
+		durable:  durable,
 		handler:  handler,
 		name:     name,
+		gate:     newWorkGate(),
 	}
 }
 
-// Start starts the scanner and subscribes to NATS messages
+// Start binds the durable work-queue consumer. It retries until the stream exists.
 func (w *BaseScanner) Start(ctx context.Context) error {
-	_, err := w.natsConn.QueueSubscribe(
-		w.subject,
-		nats.QueueScanners,
-		w.handleMessage,
-	)
-	if err != nil {
-		return err
-	}
-
-	w.mu.Lock()
-	w.isRunning = true
-	w.mu.Unlock()
-
-	log.Printf("%s scanner started and subscribed to %s", w.name, w.subject)
+	go w.bind(ctx)
 	return nil
+}
+
+func (w *BaseScanner) bind(ctx context.Context) {
+	backoff := time.Second
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := w.natsConn.ConsumeDurable(ctx, w.subject, w.durable, w.onMessage)
+		if err == nil {
+			w.mu.Lock()
+			w.isRunning = true
+			w.mu.Unlock()
+			log.Printf("%s scanner started and subscribed to %s", w.name, w.subject)
+			return
+		}
+		log.Printf("%s scanner waiting for %s: %v", w.name, w.subject, err)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
 }
 
 // IsRunning returns whether the scanner is currently running
 func (w *BaseScanner) IsRunning() bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.isRunning
 }
 
@@ -65,20 +87,72 @@ func (w *BaseScanner) GetName() string {
 	return w.name
 }
 
-// handleMessage processes a NATS message asynchronously so slow handlers (e.g. TLS scan)
-// do not block the NATS subscription and the next message can be delivered immediately.
-func (w *BaseScanner) handleMessage(msg *natslib.Msg) {
-	log.Printf("[NATS] RECV subject=%s component=scanner-%s", w.subject, w.name)
-	go func() {
-		if err := w.handler(msg); err != nil {
-			log.Printf("Error processing message in %s scanner: %v", w.name, err)
-			// In a production system, you might want to publish to a dead letter queue
+func (w *BaseScanner) onMessage(msg nats.DurableMessage) {
+	var probe struct {
+		ScanID uuid.UUID `json:"scan_id"`
+	}
+	_ = json.Unmarshal(msg.Data(), &probe)
+	key := deliveryKey(probe.ScanID.String(), msg.Sequence())
+	if probe.ScanID == uuid.Nil {
+		key = deliveryKey("", msg.Sequence())
+	}
+
+	w.mu.Lock()
+	decision := w.gate.Begin(key)
+	w.mu.Unlock()
+
+	switch decision {
+	case decisionAck:
+		if err := msg.Ack(); err != nil {
+			log.Printf("%s scanner ack of finished %s: %v", w.name, key, err)
 		}
-	}()
+		return
+	case decisionBusy:
+		if err := msg.InProgress(); err != nil {
+			log.Printf("%s scanner in-progress for %s: %v", w.name, key, err)
+		}
+		return
+	}
+
+	go w.runDelivery(msg, key)
 }
 
-// UnmarshalMessage is a helper function to unmarshal JSON messages
-// This is a generic function that works with any message type
-func UnmarshalMessage(msg *natslib.Msg, v interface{}) error {
-	return json.Unmarshal(msg.Data, v)
+func (w *BaseScanner) runDelivery(msg nats.DurableMessage, key string) {
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(inProgressEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				_ = msg.InProgress()
+			}
+		}
+	}()
+
+	last := msg.NumDelivered() >= uint64(nats.ScanRequestMaxDeliver)
+	err := w.handler(msg.Data(), last)
+	close(done)
+
+	w.mu.Lock()
+	w.gate.Finish(key, err == nil)
+	w.mu.Unlock()
+
+	if err != nil {
+		log.Printf("Error processing message in %s scanner: %v", w.name, err)
+		if nakErr := msg.Nak(); nakErr != nil {
+			log.Printf("%s scanner nak %s: %v", w.name, key, nakErr)
+		}
+		return
+	}
+	if ackErr := msg.Ack(); ackErr != nil {
+		log.Printf("%s scanner ack %s: %v", w.name, key, ackErr)
+	}
+}
+
+// UnmarshalMessage decodes a scan request payload.
+func UnmarshalMessage(data []byte, v interface{}) error {
+	return json.Unmarshal(data, v)
 }
