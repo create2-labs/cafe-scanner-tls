@@ -55,7 +55,7 @@ docker run --rm -e NATS_URL=nats://host.docker.internal:4222 cafe-scanner-tls:lo
 
 ## Image publication and versioning
 
-This repository follows the same RC/Release strategy as `cafe-discovery` and `cafe-scanner-wallet`:
+This repository follows the same RC/Release strategy as `cafe-discovery`:
 
 - `docker-rc.yml`: builds and pushes `oleglod/cafe-scanner-tls:sha-<short_sha>` (always), plus optional `vX.Y.Z-rc<run_id>`.
 - `docker-release.yml`: promotes from `sha-<short_sha>` to `vX.Y.Z` and `latest` using `imagetools create` (no rebuild).

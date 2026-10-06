@@ -66,7 +66,7 @@ func main() {
 	initConfig()
 	initLogging()
 
-	deps, err := core.Setup("tls")
+	deps, err := core.Setup()
 	if err != nil {
 		log.Fatalf("Setup failed: %v", err)
 	}

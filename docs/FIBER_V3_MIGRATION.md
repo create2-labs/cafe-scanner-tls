@@ -101,7 +101,7 @@ Peut être omis si CI existante + smoke stack couvrent déjà `/health`.
 | --- | --- |
 | Listen startup message bruyant en logs | optionnel `ListenConfig{DisableStartupMessage: true}` — hors chemin critique |
 | Régression health JSON consommée par probes K8s/compose | comparer body byte-à-byte avec v2 en staging |
-| Drift vs `cafe-scanner-wallet` | même découpage T0/T1 ; PRs v3 le même jour |
+| Drift de recette Fiber | même découpage T0/T1 ; PRs v3 le même jour |
 
 ---
 
@@ -109,4 +109,3 @@ Peut être omis si CI existante + smoke stack couvrent déjà `/health`.
 
 1. ~~T0 (v2.52.14)~~ **done**
 2. ~~T1 (v3.4.0)~~ **done**
-3. Miroir avec [cafe-scanner-wallet `docs/FIBER_V3_MIGRATION.md`](https://github.com/create2-labs/cafe-scanner-wallet/blob/main/docs/FIBER_V3_MIGRATION.md)
