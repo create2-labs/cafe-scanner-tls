@@ -15,28 +15,15 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Setup initializes NATS and chain config. Call after initConfig/initLogging.
-// Scanners do not use Postgres; persistence-service is the single writer.
-func Setup(scannerType string) (*Deps, error) {
+// Setup initializes NATS. Call after initConfig/initLogging.
+// The scanner does not use Postgres; persistence-service is the single writer.
+func Setup() (*Deps, error) {
 	natsConn, err := nats.New()
 	if err != nil {
 		return nil, err
 	}
 
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "config.yaml"
-	}
-	chainConfig, err := config.LoadChainConfig(configPath)
-	if err != nil {
-		natsConn.Close()
-		return nil, err
-	}
-
-	return &Deps{
-		NATS:        natsConn,
-		ChainConfig: chainConfig,
-	}, nil
+	return &Deps{NATS: natsConn}, nil
 }
 
 // RunResult holds the result of starting a runner (name, health checkers, shutdown func).

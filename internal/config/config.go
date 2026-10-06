@@ -28,13 +28,6 @@ const (
 	// Boolean; used to register commands at development guild level or globally.
 	Production = "PRODUCTION"
 
-	// Moralis API key.
-	// #nosec G101 -- This is a configuration key name, not a hardcoded credential
-	MoralisAPIKey = "MORALIS_API_KEY"
-
-	// Moralis API URL.
-	MoralisAPIURL = "MORALIS_API_URL"
-
 	// CORS configuration
 	CORSAllowOrigins = "CORS_ALLOW_ORIGINS"
 	CORSAllowMethods = "CORS_ALLOW_METHODS"
@@ -47,12 +40,8 @@ const (
 	// #nosec G101 -- This is a configuration key name, not a hardcoded credential
 	JWTSecret = "JWT_SECRET"
 
-	// Scan plugin versions (config file: scan.plugins.tls.version, scan.plugins.wallet.version)
-	ScanPluginsTLSVersion    = "scan.plugins.tls.version"
-	ScanPluginsWalletVersion = "scan.plugins.wallet.version"
-
-	// Scanner type: "tls" | "wallet" | "" or "all" (both). Used when running as separate scanner processes.
-	DiscoveryScannerType = "DISCOVERY_SCANNER_TYPE"
+	// Scan plugin version (config file: scan.plugins.tls.version)
+	ScanPluginsTLSVersion = "scan.plugins.tls.version"
 
 	defaultProduction         = true
 	defaultPostgreSQLHost     = "127.0.0.1"
@@ -63,8 +52,6 @@ const (
 	defaultPostgreSQLSSLMode  = "disable"
 	defaultNATSURL            = "nats://localhost:4222"
 	defaultRedisURL           = "redis://localhost:6379"
-	defaultMoralisAPIKey      = ""
-	defaultMoralisAPIURL      = "https://deep-index.moralis.io"
 	defaultServerHost         = "0.0.0.0"
 	defaultServerPort         = "8080"
 	defaultScannerHealthPort  = "8081"
@@ -74,30 +61,27 @@ const (
 	// These are free test keys provided by Cloudflare for development
 	defaultTurnstileSecretKey = "1x0000000000000000000000000000000AA"
 	defaultTurnstileSiteKey   = "1x00000000000000000000AA"
-	defaultScanPluginVersion = "1.0"
+	defaultScanPluginVersion  = "1.0"
 )
 
 func GetDefaultConfigValues() map[string]any {
 	return map[string]any{
-		PostgreSQLHost:     defaultPostgreSQLHost,
-		PostgreSQLPort:     defaultPostgreSQLPort,
-		PostgreSQLUser:     defaultPostgreSQLUser,
-		PostgreSQLPassword: defaultPostgreSQLPassword,
-		PostgreSQLDatabase: defaultPostgreSQLDatabase,
-		PostgreSQLSSLMode:  defaultPostgreSQLSSLMode,
-		NATSURL:            defaultNATSURL,
-		RedisURL:           defaultRedisURL,
-		Production:         defaultProduction,
-		ServerHost:         defaultServerHost,
-		ServerPort:         defaultServerPort,
-		ScannerHealthPort:  defaultScannerHealthPort,
-		MoralisAPIKey:      defaultMoralisAPIKey,
-		MoralisAPIURL:      defaultMoralisAPIURL,
-		CORSAllowOrigins:   defaultCORSAllowOrigins,
-		CORSAllowMethods:   defaultCORSAllowMethods,
-		TurnstileSecretKey:   defaultTurnstileSecretKey,
-		TurnstileSiteKey:     defaultTurnstileSiteKey,
+		PostgreSQLHost:        defaultPostgreSQLHost,
+		PostgreSQLPort:        defaultPostgreSQLPort,
+		PostgreSQLUser:        defaultPostgreSQLUser,
+		PostgreSQLPassword:    defaultPostgreSQLPassword,
+		PostgreSQLDatabase:    defaultPostgreSQLDatabase,
+		PostgreSQLSSLMode:     defaultPostgreSQLSSLMode,
+		NATSURL:               defaultNATSURL,
+		RedisURL:              defaultRedisURL,
+		Production:            defaultProduction,
+		ServerHost:            defaultServerHost,
+		ServerPort:            defaultServerPort,
+		ScannerHealthPort:     defaultScannerHealthPort,
+		CORSAllowOrigins:      defaultCORSAllowOrigins,
+		CORSAllowMethods:      defaultCORSAllowMethods,
+		TurnstileSecretKey:    defaultTurnstileSecretKey,
+		TurnstileSiteKey:      defaultTurnstileSiteKey,
 		ScanPluginsTLSVersion: defaultScanPluginVersion,
-		ScanPluginsWalletVersion: defaultScanPluginVersion,
 	}
 }

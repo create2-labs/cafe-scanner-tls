@@ -3,15 +3,13 @@ package core
 import (
 	"context"
 
-	"cafe-scanner-tls/internal/config"
 	"cafe-scanner-tls/pkg/nats"
 )
 
-// Deps holds shared dependencies for all scanner runners (NATS, chain config).
-// Scanners do not access Postgres; they publish scan.started/completed/failed to NATS for the persistence-service.
+// Deps holds shared dependencies for the TLS scanner runner.
+// The scanner does not access Postgres; it publishes scan.started/completed/failed to NATS for the persistence-service.
 type Deps struct {
-	NATS        nats.Connection
-	ChainConfig *config.ChainConfig
+	NATS nats.Connection
 }
 
 // HealthChecker is implemented by each scanner type for the health endpoint.
@@ -19,10 +17,10 @@ type HealthChecker interface {
 	IsRunning() bool
 }
 
-// Runner starts one kind of scanner (TLS or Wallet) and returns health checkers plus a shutdown func.
+// Runner starts the TLS scanner and returns health checkers plus a shutdown func.
 // The shutdown func must be called on process exit so the scanner can announce "left" via NATS.
 type Runner interface {
-	// Name returns the scanner kind for health checks and presence (e.g. "tls", "wallet").
+	// Name returns the scanner kind for health checks and presence ("tls").
 	Name() string
 	// Start starts the scanner(s). It announces "joined" via NATS before consuming, then returns
 	// health checkers and a shutdown func that announces "left" and stops heartbeats.

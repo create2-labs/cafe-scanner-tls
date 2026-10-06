@@ -8,7 +8,7 @@ import (
 )
 
 // ProcessWithConcurrency runs fn with semaphore and standardized logging.
-// name: scanner name (e.g. "Wallet"); kind: plugin kind (e.g. "wallet"); subject: NATS subject.
+// name: scanner name (e.g. "TLS"); kind: plugin kind ("tls"); subject: NATS subject.
 // After fn returns, logs duration and success or error.
 func ProcessWithConcurrency(name, kind, subject string, sem chan struct{}, msg *natslib.Msg, fn func() error) error {
 	sem <- struct{}{}
