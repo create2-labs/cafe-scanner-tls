@@ -89,8 +89,7 @@ func PublishJSON(conn Connection, subject string, payload interface{}) error {
 
 // Subjects for NATS messaging
 const (
-	SubjectTLSScan         = "cafe.discovery.tls.scan"
-	SubjectScannerPresence = "cafe.discovery.scanners.presence"
+	SubjectTLSScan = "cafe.discovery.tls.scan"
 
 	// Event subjects for persistence service (scan lifecycle)
 	SubjectScanRequestedTLS    = "scan.requested.tls"

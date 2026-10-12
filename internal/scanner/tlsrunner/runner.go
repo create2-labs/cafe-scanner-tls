@@ -13,6 +13,7 @@ import (
 	"cafe-scanner-tls/pkg/nats"
 	"cafe-scanner-tls/pkg/scan"
 
+	presencev1 "github.com/create2-labs/cafe-contracts/discovery/scannerpresence/v1"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
@@ -28,12 +29,17 @@ func (Runner) Name() string { return "tls" }
 // Start implements core.Runner: announces joined via NATS, starts heartbeat, wires plugin and scanner, returns health checkers and shutdown func.
 func (Runner) Start(ctx context.Context, deps *core.Deps) ([]core.HealthChecker, func(), error) {
 	scannerID := uuid.New().String()
-	presence := nats.ScannerPresenceMessage{Event: nats.ScannerPresenceJoined, ScannerID: scannerID, Type: "tls"}
-	if err := nats.PublishJSON(deps.NATS, nats.SubjectScannerPresence, presence); err != nil {
+	presence := presencev1.Message{
+		Event:     presencev1.EventJoined,
+		ScannerID: scannerID,
+		Type:      "tls",
+	}
+	if err := nats.PublishJSON(deps.NATS, presencev1.Subject, presence); err != nil {
 		return nil, nil, err
 	}
 	log.Printf("TLS scanner %s announced joined", scannerID)
 
+	// Heartbeat republishes this same presence value.
 	heartbeatCtx, stopHeartbeat := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(heartbeatInterval)
@@ -43,7 +49,7 @@ func (Runner) Start(ctx context.Context, deps *core.Deps) ([]core.HealthChecker,
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
-				_ = nats.PublishJSON(deps.NATS, nats.SubjectScannerPresence, presence)
+				_ = nats.PublishJSON(deps.NATS, presencev1.Subject, presence)
 				_ = nats.PublishJSON(deps.NATS, nats.SubjectScannerHeartbeatTLS, nats.ScannerHeartbeatMessage{
 					ScannerID: scannerID, Kind: "tls", Timestamp: time.Now().UTC().Format(time.RFC3339),
 				})
@@ -63,8 +69,8 @@ func (Runner) Start(ctx context.Context, deps *core.Deps) ([]core.HealthChecker,
 
 	shutdown := func() {
 		stopHeartbeat()
-		left := nats.ScannerPresenceMessage{Event: nats.ScannerPresenceLeft, ScannerID: scannerID, Type: "tls"}
-		_ = nats.PublishJSON(deps.NATS, nats.SubjectScannerPresence, left)
+		left := presencev1.Message{Event: presencev1.EventLeft, ScannerID: scannerID, Type: "tls"}
+		_ = nats.PublishJSON(deps.NATS, presencev1.Subject, left)
 		log.Printf("TLS scanner %s announced left", scannerID)
 	}
 	return []core.HealthChecker{w}, shutdown, nil
