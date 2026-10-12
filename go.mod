@@ -3,6 +3,7 @@ module cafe-scanner-tls
 go 1.26.6
 
 require (
+	github.com/create2-labs/cafe-contracts v0.1.0
 	github.com/gofiber/fiber/v3 v3.4.0
 	github.com/google/uuid v1.6.0
 	github.com/nats-io/nats.go v1.49.0
