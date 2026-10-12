@@ -13,12 +13,14 @@ import (
 	"cafe-scanner-tls/pkg/nats"
 	"cafe-scanner-tls/pkg/scan"
 
+	heartbeatv1 "github.com/create2-labs/cafe-contracts/discovery/scannerheartbeat/v1"
 	presencev1 "github.com/create2-labs/cafe-contracts/discovery/scannerpresence/v1"
+	requestv1 "github.com/create2-labs/cafe-contracts/discovery/scanrequest/v1"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
 
-const heartbeatInterval = 30 * time.Second
+var heartbeatInterval = 30 * time.Second
 
 // Runner starts the TLS scan scanner (consumes NATS TLS subject).
 type Runner struct{}
@@ -50,15 +52,15 @@ func (Runner) Start(ctx context.Context, deps *core.Deps) ([]core.HealthChecker,
 				return
 			case <-ticker.C:
 				_ = nats.PublishJSON(deps.NATS, presencev1.Subject, presence)
-				_ = nats.PublishJSON(deps.NATS, nats.SubjectScannerHeartbeatTLS, nats.ScannerHeartbeatMessage{
-					ScannerID: scannerID, Kind: "tls", Timestamp: time.Now().UTC().Format(time.RFC3339),
+				_ = nats.PublishJSON(deps.NATS, heartbeatv1.SubjectScannerHeartbeatTLS, heartbeatv1.Message{
+					ScannerID: scannerID, Kind: heartbeatv1.KindTLS, Timestamp: time.Now().UTC().Format(time.RFC3339),
 				})
 			}
 		}
 	}()
 
 	engine := tlsscan.NewTLSScanEngine()
-	tlsPlugin := tls.NewPlugin(engine, viper.GetString(config.ScanPluginsTLSVersion), nats.SubjectScanRequestedTLS)
+	tlsPlugin := tls.NewPlugin(engine, viper.GetString(config.ScanPluginsTLSVersion), requestv1.SubjectScanRequestedTLS)
 	scan.Register(tlsPlugin)
 
 	w := scanner.NewTLSScanner(scan.Get(scan.KindTLS), deps.NATS)

@@ -151,8 +151,3 @@ func (w *BaseScanner) runDelivery(msg nats.DurableMessage, key string) {
 		log.Printf("%s scanner ack %s: %v", w.name, key, ackErr)
 	}
 }
-
-// UnmarshalMessage decodes a scan request payload.
-func UnmarshalMessage(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
-}

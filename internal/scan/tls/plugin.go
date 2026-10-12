@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"cafe-scanner-tls/internal/tlsscan"
-	"cafe-scanner-tls/pkg/nats"
 	"cafe-scanner-tls/pkg/scan"
 
+	requestv1 "github.com/create2-labs/cafe-contracts/discovery/scanrequest/v1"
 	"github.com/google/uuid"
 )
 
@@ -27,12 +27,13 @@ type Plugin struct {
 }
 
 // NewPlugin returns the TLS discovery plugin. version is read from config (e.g. scan.plugins.tls.version).
-// subjectOverride: when non-empty (e.g. nats.SubjectScanRequestedTLS in scanner), use it instead of SubjectTLSScan.
+// subjectOverride: when non-empty (scan.requested.tls in the scanner), use it instead of cafe.discovery.tls.scan.
+// Both subjects come from the scan request contract.
 func NewPlugin(engine *tlsscan.TLSScanEngine, version string, subjectOverride string) *Plugin {
 	if version == "" {
 		version = "1.0"
 	}
-	subject := nats.SubjectTLSScan
+	subject := requestv1.SubjectTLSScan
 	if subjectOverride != "" {
 		subject = subjectOverride
 	}
@@ -77,9 +78,9 @@ func (p *Plugin) DecodeHTTP(body []byte) (scan.ScanTarget, error) {
 	return &scan.TLSTarget{Endpoint: req.URL}, nil
 }
 
-// DecodeMessage implements scan.Plugin. msg is *nats.TLSScanMessage.
+// DecodeMessage implements scan.Plugin. msg is *requestv1.TLS.
 func (p *Plugin) DecodeMessage(msg any) (scan.ScanTarget, error) {
-	m, ok := msg.(*nats.TLSScanMessage)
+	m, ok := msg.(*requestv1.TLS)
 	if !ok {
 		return nil, errors.New("invalid message type for TLS plugin")
 	}

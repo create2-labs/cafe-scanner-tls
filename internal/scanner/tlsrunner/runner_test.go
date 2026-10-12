@@ -5,15 +5,21 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"cafe-scanner-tls/internal/scanner/core"
 	"cafe-scanner-tls/pkg/nats"
 
+	heartbeatv1 "github.com/create2-labs/cafe-contracts/discovery/scannerheartbeat/v1"
 	presencev1 "github.com/create2-labs/cafe-contracts/discovery/scannerpresence/v1"
+	requestv1 "github.com/create2-labs/cafe-contracts/discovery/scanrequest/v1"
 	natslib "github.com/nats-io/nats.go"
 )
 
 func TestStartAnnouncesTLSPresenceWithSharedContract(t *testing.T) {
+	heartbeatInterval = time.Hour
+	t.Cleanup(func() { heartbeatInterval = 30 * time.Second })
+
 	if presencev1.Subject != "cafe.discovery.scanners.presence" {
 		t.Fatalf("subject = %s", presencev1.Subject)
 	}
@@ -46,6 +52,49 @@ func TestStartAnnouncesTLSPresenceWithSharedContract(t *testing.T) {
 		t.Fatalf("left = %#v joined id %s", left, joined.ScannerID)
 	}
 	assertPresenceJSON(t, pubs[1].data, presencev1.EventLeft, joined.ScannerID)
+}
+
+func TestHeartbeatPublishesSharedContract(t *testing.T) {
+	heartbeatInterval = time.Millisecond
+	t.Cleanup(func() { heartbeatInterval = 30 * time.Second })
+	if heartbeatv1.SubjectScannerHeartbeatTLS != "scanner.heartbeat.tls" {
+		t.Fatalf("subject = %s", heartbeatv1.SubjectScannerHeartbeatTLS)
+	}
+	if requestv1.SubjectScanRequestedTLS != "scan.requested.tls" || requestv1.SubjectTLSScan != "cafe.discovery.tls.scan" {
+		t.Fatalf("requested %s fallback %s", requestv1.SubjectScanRequestedTLS, requestv1.SubjectTLSScan)
+	}
+
+	conn := &recordingConn{}
+	_, shutdown, err := Runner{}.Start(context.Background(), &core.Deps{NATS: conn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shutdown()
+
+	var beat publication
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, pub := range conn.publications() {
+			if pub.subject == heartbeatv1.SubjectScannerHeartbeatTLS {
+				beat = pub
+				break
+			}
+		}
+		if beat.subject != "" {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if beat.subject == "" {
+		t.Fatal("heartbeat was not published")
+	}
+	msg, err := heartbeatv1.Decode(beat.data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Kind != heartbeatv1.KindTLS || msg.ScannerID == "" || msg.Timestamp == "" {
+		t.Fatalf("heartbeat = %#v", msg)
+	}
 }
 
 func decodePresence(t *testing.T, pub publication) presencev1.Message {

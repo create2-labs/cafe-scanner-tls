@@ -10,6 +10,8 @@ import (
 	"cafe-scanner-tls/pkg/nats"
 	"cafe-scanner-tls/pkg/scan"
 
+	lifecyclev1 "github.com/create2-labs/cafe-contracts/discovery/scanlifecycle/v1"
+	requestv1 "github.com/create2-labs/cafe-contracts/discovery/scanrequest/v1"
 	"github.com/google/uuid"
 	natslib "github.com/nats-io/nats.go"
 )
@@ -102,7 +104,7 @@ func waitCount(t *testing.T, got func() int, want int) {
 func TestBaseScanner_RedeliveryDoesNotRunTwice(t *testing.T) {
 	var runs int
 	var mu sync.Mutex
-	base := NewBaseScanner(nil, nats.SubjectScanRequestedTLS, nats.DurableScannerTLS, "TLS", func([]byte, bool) error {
+	base := NewBaseScanner(nil, requestv1.SubjectScanRequestedTLS, nats.DurableScannerTLS, "TLS", func([]byte, bool) error {
 		mu.Lock()
 		runs++
 		mu.Unlock()
@@ -125,7 +127,7 @@ func TestBaseScanner_RedeliveryDoesNotRunTwice(t *testing.T) {
 }
 
 func TestBaseScanner_FailureNacksUntilLast(t *testing.T) {
-	base := NewBaseScanner(nil, nats.SubjectScanRequestedTLS, nats.DurableScannerTLS, "TLS", func([]byte, bool) error {
+	base := NewBaseScanner(nil, requestv1.SubjectScanRequestedTLS, nats.DurableScannerTLS, "TLS", func([]byte, bool) error {
 		return errTest
 	})
 	payload, _ := json.Marshal(map[string]string{"scan_id": uuid.New().String()})
@@ -143,14 +145,19 @@ func (errTestType) Error() string { return "scan failed" }
 
 var errTest error = errTestType{}
 
-type fakeConn struct {
-	mu       sync.Mutex
-	subjects []string
+type published struct {
+	subject string
+	data    []byte
 }
 
-func (f *fakeConn) Publish(subject string, _ []byte) error {
+type fakeConn struct {
+	mu   sync.Mutex
+	pubs []published
+}
+
+func (f *fakeConn) Publish(subject string, data []byte) error {
 	f.mu.Lock()
-	f.subjects = append(f.subjects, subject)
+	f.pubs = append(f.pubs, published{subject: subject, data: append([]byte(nil), data...)})
 	f.mu.Unlock()
 	return nil
 }
@@ -164,23 +171,34 @@ func (f *fakeConn) Close()            {}
 func (f *fakeConn) IsConnected() bool { return true }
 
 func (f *fakeConn) has(subject string) bool {
+	return f.body(subject) != nil
+}
+
+func (f *fakeConn) body(subject string) []byte {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	for _, s := range f.subjects {
-		if s == subject {
-			return true
+	for _, pub := range f.pubs {
+		if pub.subject == subject {
+			return pub.data
 		}
 	}
-	return false
+	return nil
+}
+
+func (f *fakeConn) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.pubs)
 }
 
 type stubPlugin struct {
 	runs   int
 	runErr error
+	result scan.ScanResult
 }
 
 func (s *stubPlugin) Descriptor() *scan.PluginDescriptor {
-	return &scan.PluginDescriptor{Kind: scan.KindTLS, Subject: nats.SubjectScanRequestedTLS}
+	return &scan.PluginDescriptor{Kind: scan.KindTLS, Subject: requestv1.SubjectScanRequestedTLS}
 }
 func (s *stubPlugin) DecodeHTTP([]byte) (scan.ScanTarget, error) { return nil, nil }
 func (s *stubPlugin) DecodeMessage(any) (scan.ScanTarget, error) { return nil, nil }
@@ -189,14 +207,28 @@ func (s *stubPlugin) Run(context.Context, *uuid.UUID, scan.ScanTarget, scan.RunO
 	if s.runErr != nil {
 		return nil, s.runErr
 	}
-	return nil, nil
+	return s.result, nil
 }
+
+type fixedRaw struct{ value any }
+
+func (fixedRaw) ScanKind() string                { return scan.KindTLS }
+func (fixedRaw) ScannedAt() time.Time            { return time.Time{} }
+func (fixedRaw) Findings() []scan.Finding        { return nil }
+func (fixedRaw) Classification() string          { return "" }
+func (fixedRaw) ToCBOM() (map[string]any, error) { return nil, nil }
+func (f fixedRaw) Raw() any                      { return f.value }
 
 func tlsPayload(t *testing.T) []byte {
 	t.Helper()
-	b, err := json.Marshal(nats.TLSScanMessage{
-		ScanID:   uuid.New(),
-		UserID:   uuid.New(),
+	return tlsPayloadIDs(t, uuid.New().String(), uuid.New().String())
+}
+
+func tlsPayloadIDs(t *testing.T, scanID, userID string) []byte {
+	t.Helper()
+	b, err := json.Marshal(requestv1.TLS{
+		ScanID:   scanID,
+		UserID:   userID,
 		Endpoint: "https://example.com",
 	})
 	if err != nil {
@@ -215,7 +247,7 @@ func TestTLSDelivery_RetryKeepsCredit(t *testing.T) {
 	if plugin.runs != 1 {
 		t.Fatalf("runs = %d, want 1", plugin.runs)
 	}
-	if conn.has(nats.SubjectScanFailed) {
+	if conn.has(lifecyclev1.SubjectScanFailed) {
 		t.Fatal("scan.failed published before the last delivery")
 	}
 }
@@ -227,10 +259,17 @@ func TestTLSDelivery_LastDeliveryPublishesFailed(t *testing.T) {
 	if err := w.handleDelivery(tlsPayload(t), true); err != nil {
 		t.Fatal(err)
 	}
-	if !conn.has(nats.SubjectScanFailed) {
-		t.Fatal("scan.failed was not published")
+	if lifecyclev1.SubjectScanFailed != "scan.failed" {
+		t.Fatalf("subject = %s", lifecyclev1.SubjectScanFailed)
 	}
-	if conn.has(nats.SubjectScanCompleted) {
+	failed, err := lifecyclev1.DecodeFailed(conn.body(lifecyclev1.SubjectScanFailed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Kind != scan.KindTLS || failed.Endpoint != "https://example.com" || failed.Error == "" {
+		t.Fatalf("failed = %#v", failed)
+	}
+	if conn.has(lifecyclev1.SubjectScanCompleted) {
 		t.Fatal("scan.completed published on failure")
 	}
 }
@@ -245,10 +284,68 @@ func TestTLSDelivery_SuccessPublishesCompleted(t *testing.T) {
 	if plugin.runs != 1 {
 		t.Fatalf("runs = %d, want 1", plugin.runs)
 	}
-	if !conn.has(nats.SubjectScanCompleted) {
-		t.Fatal("scan.completed was not published")
+	if lifecyclev1.SubjectScanStarted != "scan.started" || lifecyclev1.SubjectScanCompleted != "scan.completed" {
+		t.Fatalf("started %s completed %s", lifecyclev1.SubjectScanStarted, lifecyclev1.SubjectScanCompleted)
 	}
-	if conn.has(nats.SubjectScanFailed) {
+	started, err := lifecyclev1.DecodeStarted(conn.body(lifecyclev1.SubjectScanStarted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := lifecyclev1.DecodeCompleted(conn.body(lifecyclev1.SubjectScanCompleted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.ScanID != completed.ScanID || started.Kind != scan.KindTLS || completed.Endpoint != "https://example.com" {
+		t.Fatalf("started %#v completed %#v", started, completed)
+	}
+	if len(completed.Result) != 0 {
+		t.Fatalf("result = %s", completed.Result)
+	}
+	if conn.has(lifecyclev1.SubjectScanFailed) {
 		t.Fatal("scan.failed published on success")
+	}
+}
+
+func TestTLSDelivery_InvalidRequestPublishesNothing(t *testing.T) {
+	conn := &fakeConn{}
+	plugin := &stubPlugin{}
+	w := NewTLSScanner(plugin, conn)
+	if err := w.handleDelivery([]byte("{"), false); err != nil {
+		t.Fatal(err)
+	}
+	if plugin.runs != 0 || conn.count() != 0 {
+		t.Fatalf("runs = %d pubs = %d", plugin.runs, conn.count())
+	}
+}
+
+func TestTLSDelivery_CompletedKeepsResultJSON(t *testing.T) {
+	conn := &fakeConn{}
+	plugin := &stubPlugin{result: fixedRaw{value: map[string]any{"host": "example.com", "port": 443}}}
+	w := NewTLSScanner(plugin, conn)
+	if err := w.handleDelivery(tlsPayload(t), false); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := lifecyclev1.DecodeCompleted(conn.body(lifecyclev1.SubjectScanCompleted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(completed.Result) != `{"host":"example.com","port":443}` {
+		t.Fatalf("result = %s", completed.Result)
+	}
+}
+
+func TestTLSDelivery_NilScanIDIsReplaced(t *testing.T) {
+	conn := &fakeConn{}
+	w := NewTLSScanner(&stubPlugin{}, conn)
+	payload := tlsPayloadIDs(t, requestv1.NilID, requestv1.NilID)
+	if err := w.handleDelivery(payload, false); err != nil {
+		t.Fatal(err)
+	}
+	started, err := lifecyclev1.DecodeStarted(conn.body(lifecyclev1.SubjectScanStarted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.ScanID == requestv1.NilID || started.UserID != requestv1.NilID {
+		t.Fatalf("started = %#v", started)
 	}
 }

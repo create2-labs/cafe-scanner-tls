@@ -2,12 +2,15 @@ package scanner
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
 	"cafe-scanner-tls/pkg/nats"
 	"cafe-scanner-tls/pkg/scan"
 
+	lifecyclev1 "github.com/create2-labs/cafe-contracts/discovery/scanlifecycle/v1"
+	requestv1 "github.com/create2-labs/cafe-contracts/discovery/scanrequest/v1"
 	"github.com/google/uuid"
 )
 
@@ -44,21 +47,21 @@ func (w *TLSScanner) IsRunning() bool {
 
 func (w *TLSScanner) handleDelivery(data []byte, last bool) error {
 	return ProcessWithConcurrency("TLS", scan.KindTLS, w.plugin.Descriptor().Subject, w.sem, nil, func() error {
-		var scanMsg nats.TLSScanMessage
-		if err := UnmarshalMessage(data, &scanMsg); err != nil {
+		scanMsg, err := requestv1.DecodeTLS(data)
+		if err != nil {
 			log.Printf("Failed to unmarshal TLS scan message: %v", err)
 			return nil
 		}
-		if scanMsg.ScanID == uuid.Nil {
-			scanMsg.ScanID = uuid.New()
+		if scanMsg.ScanID == requestv1.NilID {
+			scanMsg.ScanID = uuid.New().String()
 		}
-		log.Printf("[NATS] RECV scan_id=%s endpoint=%s component=scanner-tls", scanMsg.ScanID.String(), scanMsg.Endpoint)
-		started := nats.ScanStartedMessage{
-			ScanID: scanMsg.ScanID, Kind: "tls", UserID: scanMsg.UserID,
+		log.Printf("[NATS] RECV scan_id=%s endpoint=%s component=scanner-tls", scanMsg.ScanID, scanMsg.Endpoint)
+		started := lifecyclev1.Started{
+			ScanID: scanMsg.ScanID, Kind: scan.KindTLS, UserID: scanMsg.UserID,
 			StartedAt: time.Now().UTC().Format(time.RFC3339), Endpoint: scanMsg.Endpoint,
 		}
-		log.Printf("[NATS] PUB subject=scan.started scan_id=%s component=scanner-tls", scanMsg.ScanID.String())
-		if err := nats.PublishJSON(w.base.natsConn, nats.SubjectScanStarted, started); err != nil {
+		log.Printf("[NATS] PUB subject=scan.started scan_id=%s component=scanner-tls", scanMsg.ScanID)
+		if err := nats.PublishJSON(w.base.natsConn, lifecyclev1.SubjectScanStarted, started); err != nil {
 			log.Printf("Failed to publish scan.started: %v", err)
 		}
 		target, err := w.plugin.DecodeMessage(&scanMsg)
@@ -66,25 +69,21 @@ func (w *TLSScanner) handleDelivery(data []byte, last bool) error {
 			log.Printf("Error decoding tls scan message: %v", err)
 			return w.failOrRetry(last, scanMsg, err)
 		}
-		userID := &scanMsg.UserID
-		if scanMsg.UserID == uuid.Nil {
-			userID = nil
-		}
-		result, err := w.plugin.Run(context.Background(), userID, target, scan.RunOptions{IsDefault: scanMsg.IsDefault, SkipPersist: true})
+		result, err := w.plugin.Run(context.Background(), scanUserID(scanMsg.UserID), target, scan.RunOptions{IsDefault: scanMsg.IsDefault, SkipPersist: true})
 		if err != nil {
 			return w.failOrRetry(last, scanMsg, err)
 		}
-		var resultPayload interface{} = result
-		if r, ok := result.(scan.RawResult); ok {
-			resultPayload = r.Raw()
+		resultRaw, err := lifecycleResult(result)
+		if err != nil {
+			return w.failOrRetry(last, scanMsg, err)
 		}
-		completed := nats.ScanCompletedMessage{
-			ScanID: scanMsg.ScanID, Kind: "tls", UserID: scanMsg.UserID,
+		completed := lifecyclev1.Completed{
+			ScanID: scanMsg.ScanID, Kind: scan.KindTLS, UserID: scanMsg.UserID,
 			CompletedAt: time.Now().UTC().Format(time.RFC3339), Endpoint: scanMsg.Endpoint,
-			Result: resultPayload,
+			Result: resultRaw,
 		}
-		log.Printf("[NATS] PUB subject=scan.completed scan_id=%s component=scanner-tls", scanMsg.ScanID.String())
-		if err := nats.PublishJSON(w.base.natsConn, nats.SubjectScanCompleted, completed); err != nil {
+		log.Printf("[NATS] PUB subject=scan.completed scan_id=%s component=scanner-tls", scanMsg.ScanID)
+		if err := nats.PublishJSON(w.base.natsConn, lifecyclev1.SubjectScanCompleted, completed); err != nil {
 			log.Printf("Failed to publish scan.completed: %v", err)
 			return w.failOrRetry(last, scanMsg, err)
 		}
@@ -92,7 +91,33 @@ func (w *TLSScanner) handleDelivery(data []byte, last bool) error {
 	})
 }
 
-func (w *TLSScanner) failOrRetry(last bool, scanMsg nats.TLSScanMessage, cause error) error {
+func scanUserID(id string) *uuid.UUID {
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed == uuid.Nil {
+		return nil
+	}
+	return &parsed
+}
+
+func lifecycleResult(result scan.ScanResult) (json.RawMessage, error) {
+	if result == nil {
+		return nil, nil
+	}
+	var payload any = result
+	if raw, ok := result.(scan.RawResult); ok {
+		payload = raw.Raw()
+	}
+	if payload == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil || string(encoded) == "null" {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func (w *TLSScanner) failOrRetry(last bool, scanMsg requestv1.TLS, cause error) error {
 	if !last {
 		return cause
 	}
@@ -102,10 +127,10 @@ func (w *TLSScanner) failOrRetry(last bool, scanMsg nats.TLSScanMessage, cause e
 	return nil
 }
 
-func publishTLSScanFailed(conn nats.Connection, scanID, userID uuid.UUID, endpoint, errMsg string) error {
-	log.Printf("[NATS] PUB subject=scan.failed scan_id=%s component=scanner-tls error=%s", scanID.String(), errMsg)
-	return nats.PublishJSON(conn, nats.SubjectScanFailed, nats.ScanFailedMessage{
-		ScanID: scanID, Kind: "tls", UserID: userID,
+func publishTLSScanFailed(conn nats.Connection, scanID, userID, endpoint, errMsg string) error {
+	log.Printf("[NATS] PUB subject=scan.failed scan_id=%s component=scanner-tls error=%s", scanID, errMsg)
+	return nats.PublishJSON(conn, lifecyclev1.SubjectScanFailed, lifecyclev1.Failed{
+		ScanID: scanID, Kind: scan.KindTLS, UserID: userID,
 		Error: errMsg, CompletedAt: time.Now().UTC().Format(time.RFC3339), Endpoint: endpoint,
 	})
 }
