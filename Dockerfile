@@ -22,9 +22,12 @@ RUN set -eux; \
     arm64)  GO_ARCH=arm64 ;; \
     *) echo "unsupported arch $TARGETARCH"; exit 1 ;; \
     esac; \
-    wget -q https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz; \
-    tar -C /usr/local -xzf go${GO_VERSION}.linux-${GO_ARCH}.tar.gz; \
-    rm go${GO_VERSION}.linux-${GO_ARCH}.tar.gz
+    wget -4 --tries=5 --timeout=30 --waitretry=2 --retry-connrefused \
+      --progress=dot:giga \
+      -O "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+      "https://dl.google.com/go/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"; \
+    tar -C /usr/local -xzf "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"; \
+    rm "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
 
 ENV PATH=/usr/local/go/bin:$PATH
 ENV CGO_ENABLED=1
